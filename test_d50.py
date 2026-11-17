@@ -1,4 +1,5 @@
 import os
+import re
 import subprocess
 import sys
 import time
@@ -27,6 +28,31 @@ def folder(c, seed):
     return f"out_{c}_d{DIM}" + ("" if seed == "0" else f"_seed{seed}")
 
 
+def iters_done(c, seed):
+    """Iterations a run has reached, read from the last 'it N' line of its out.txt (written every 500 its)."""
+    try:
+        with open(os.path.join(folder(c, seed), "out.txt"), encoding="utf-8") as f:
+            found = re.findall(r"^it\s+(\d+)", f.read(), flags=re.M)
+        return min(int(found[-1]), ITERS) if found else 0
+    except OSError:
+        return 0
+
+def say(msg):
+    """print() that first wipes the progress bar line."""
+    sys.stdout.write("\r" + " " * 110 + "\r")
+    print(msg)
+
+def bar(n_done, running_list, width=30):
+    total = len(RUNS) * ITERS
+    its = n_done * ITERS + sum(iters_done(c, seed) for c, seed, *_ in running_list)
+    frac = min(its / total, 1.0)
+    el = time.time() - t_all
+    eta = int(el * (1 - frac) / frac) if frac > 0 else 0
+    b = "#" * int(width * frac) + "-" * (width - int(width * frac))
+    sys.stdout.write(f"\rtotal [{b}] {100 * frac:5.1f}% | runs {n_done}/{len(RUNS)} finished, {len(running_list)} running"
+                     f" | ETA {eta // 3600:02d}:{eta % 3600 // 60:02d}:{eta % 60:02d}  ")
+    sys.stdout.flush()
+
 if FRESH_START:
     for c, seed in RUNS:
         ckpt = os.path.join(folder(c, seed), "model.pt")
@@ -49,7 +75,7 @@ while pending or running:
         proc = subprocess.Popen([sys.executable, "apac_fallguys_v3.py"], env=env,
                                 stdout=console, stderr=subprocess.STDOUT)
         running.append((c, seed, dev, proc, console, time.time()))
-        print(f"started  {c} seed {seed} on {dev}  (console output: {folder(c, seed)}/console.txt)")
+        say(f"started  {c} seed {seed} on {dev}  (console output: {folder(c, seed)}/console.txt)")
     for item in list(running):
         c, seed, dev, proc, console, t0 = item
         if proc.poll() is not None:
@@ -59,9 +85,11 @@ while pending or running:
             status = "done" if proc.returncode == 0 else f"FAILED (code {proc.returncode})"
             if proc.returncode != 0:
                 failed.append((c, seed))
-            print(f"{status:8s} {c} seed {seed} on {dev}  after {(time.time() - t0) / 60:.1f} min")
+            say(f"{status:8s} {c} seed {seed} on {dev}  after {(time.time() - t0) / 60:.1f} min")
+    bar(len(RUNS) - len(pending) - len(running), running)
     time.sleep(5)
 
+sys.stdout.write("\r" + " " * 110 + "\r")
 if failed:
     print("failed runs (see their console.txt):", failed)
 print(f"all runs finished after {(time.time() - t_all) / 60:.1f} min")

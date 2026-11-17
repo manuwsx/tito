@@ -788,6 +788,8 @@ def save(name, saver):
 
 def progress(done, total, t0, label="training", width=30):
     """One-line progress bar (rewritten in place): [#####-----]  42.0% | 4200/10000 | 12.3 it/s | ETA 00:07:52."""
+    if not sys.stdout.isatty():                          # redirected to a file (e.g. console.txt): no bar
+        return
     frac = min(max(done / max(total, 1), 0.0), 1.0)
     el = time.time() - t0
     rate = done / el if el > 0 else 0.0
@@ -798,7 +800,8 @@ def progress(done, total, t0, label="training", width=30):
 
 def log(msg, fname="out.txt", fresh=False):
     """Print and append to OUT_DIR/<fname> (out.txt = training log, metrics.txt = collision summary)."""
-    sys.stdout.write("\r" + " " * 100 + "\r")      # wipe the progress bar line before printing
+    if sys.stdout.isatty():
+        sys.stdout.write("\r" + " " * 100 + "\r")  # wipe the progress bar line before printing
     print(msg)
     with open(os.path.join(OUT_DIR, fname), "w" if fresh else "a", encoding="utf-8") as f:
         f.write(msg + "\n")
