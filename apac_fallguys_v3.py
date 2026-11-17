@@ -15,6 +15,7 @@
 # =============================================================================
 import os
 import json
+import sys
 import time
 import numpy as np
 import torch
@@ -546,7 +547,10 @@ def train():
     # The same rule is used on every course.
     x_stop = min(b[0] for b in C["boxes"]) - 0.25       # just in front of the leftmost obstacle
     opt_warm = torch.optim.Adam(G.parameters(), lr=1e-3)
+    t_warm = time.time()
     for it in range(WARMUP_ITERS):
+        if it % 10 == 0 or it == WARMUP_ITERS - 1:
+            progress(it + 1, WARMUP_ITERS, t_warm, "warm start")
         z, t = sample_rho0(BATCH), sample_t(BATCH)
         target = z.clone()
         straight = z[:, 0] + (t[:, 0] / T) * (GOAL[0] - z[:, 0])         # straight ahead, same height
@@ -558,6 +562,8 @@ def train():
     log(f"warm start done, fit error {loss_warm.item():.4f}", fresh=True)
     t_start = time.time()
     for it in range(ITERS + 1):
+        if it % 10 == 0 or it == ITERS:
+            progress(it, ITERS, t_start)
         # ===== (1) phi step (discriminator): maximise the Lagrangian over omega =====
         set_requires_grad(phi, True), set_requires_grad(G, False)
         z, t = sample_rho0(BATCH), sample_t(BATCH)
@@ -780,8 +786,19 @@ def save(name, saver):
             if k > 20:
                 raise
 
+def progress(done, total, t0, label="training", width=30):
+    """One-line progress bar (rewritten in place): [#####-----]  42.0% | 4200/10000 | 12.3 it/s | ETA 00:07:52."""
+    frac = min(max(done / max(total, 1), 0.0), 1.0)
+    el = time.time() - t0
+    rate = done / el if el > 0 else 0.0
+    eta = int((total - done) / rate) if rate > 0 else 0
+    bar = "#" * int(width * frac) + "-" * (width - int(width * frac))
+    sys.stdout.write(f"\r{label} [{bar}] {100 * frac:5.1f}% | {done}/{total} | {rate:5.1f} it/s | ETA {eta // 3600:02d}:{eta % 3600 // 60:02d}:{eta % 60:02d}  ")
+    sys.stdout.flush()
+
 def log(msg, fname="out.txt", fresh=False):
     """Print and append to OUT_DIR/<fname> (out.txt = training log, metrics.txt = collision summary)."""
+    sys.stdout.write("\r" + " " * 100 + "\r")      # wipe the progress bar line before printing
     print(msg)
     with open(os.path.join(OUT_DIR, fname), "w" if fresh else "a", encoding="utf-8") as f:
         f.write(msg + "\n")
